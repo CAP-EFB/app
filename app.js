@@ -5,7 +5,7 @@
    All data stays in the browser (IndexedDB with a localStorage mirror).
    ========================================================================= */
 
-const APP_VERSION = '1.1.4';
+const APP_VERSION = '1.1.5';
 const STATE_KEY = 'observer-log-state-v1';
 const DB_NAME = 'observer-log';
 const DB_STORE = 'kv';
@@ -1177,17 +1177,23 @@ function notesView(log) {
           <button type="button" class="mini" data-act="clear-sketch">Clear</button>
         </div>
       </div>
+      <div class="sketch-mode">
+        <span class="sketch-mode-label">Draw with</span>
+        <div class="seg">
+          <button type="button" data-act="set-finger-mode" data-value="0" class="${state.settings.fingerDraw ? '' : 'active'}">Apple Pencil</button>
+          <button type="button" data-act="set-finger-mode" data-value="1" class="${state.settings.fingerDraw ? 'active' : ''}">Finger</button>
+        </div>
+        <span class="sketch-mode-note">${state.settings.fingerDraw ? 'Finger draws. Switch to Pencil to scroll.' : 'Pencil draws. A finger scrolls the page.'}</span>
+      </div>
       <div class="canvas-wrap">
         <canvas id="sketch" width="1000" height="1250" aria-label="Sketch pad"></canvas>
-      </div>
-      <div class="btn-row" style="margin-top:9px">
-        <button type="button" class="btn small ${state.settings.fingerDraw ? 'soft' : ''}" data-act="toggle-finger">
-          ${state.settings.fingerDraw ? 'Finger drawing: on' : 'Finger drawing: off'}
-        </button>
+        ${!state.settings.fingerDraw && !log.sketch ? '<div class="canvas-tip">Using a finger? Choose <strong>Finger</strong> above.</div>' : ''}
       </div>
       <div class="sketch-hint">
-        With finger drawing off, drag to scroll and use an Apple Pencil to draw.
-        Turn it on to sketch with a finger. Sketches save automatically.
+        ${state.settings.fingerDraw
+          ? 'A finger or Apple Pencil draws. Switch to Apple Pencil mode when you want a finger to scroll the page.'
+          : 'Apple Pencil draws. A finger scrolls the page. Choose Finger to sketch with a finger.'}
+        Sketches save automatically.
       </div>
     </section>
 
@@ -1340,6 +1346,8 @@ function setupSketch() {
     if (event.pointerType !== 'pen' && !state.settings.fingerDraw) return;
     if (event.button != null && event.button !== 0) return;
     event.preventDefault();
+    const tip = canvas.parentElement.querySelector('.canvas-tip');
+    if (tip) tip.remove();
     try { canvas.setPointerCapture(event.pointerId); } catch (_) { /* ignore */ }
     snapshot();
     dirty = true;
@@ -2022,7 +2030,7 @@ function helpSheet() {
             <span><strong>GPS positions</strong><span class="mi-sub">Tap “Use GPS” in an entry, observation, or mission sheet. Turn on Auto-capture GPS in Settings to stamp every checkpoint. Allow location when Safari asks; a fix works without a network.</span></span>
           </div>
           <div class="menu-item" style="cursor:default">
-            <span><strong>Apple Pencil</strong><span class="mi-sub">Draw on the sketch pad with the pencil. With finger drawing off, a finger scrolls the page instead of drawing.</span></span>
+            <span><strong>Apple Pencil</strong><span class="mi-sub">Choose <strong>Finger</strong> above the sketch pad to draw without a pencil. In Apple Pencil mode a finger scrolls the page instead of drawing.</span></span>
           </div>
         </div>
         <p class="sheet-note" style="margin-top:10px">
@@ -2805,6 +2813,16 @@ const actions = {
     save();
     if ($('#overlay').classList.contains('show')) settingsSheet();
     else if (activeTab === 'notes') render();
+  },
+  'set-finger-mode': el => {
+    const next = el.dataset.value === '1';
+    if (state.settings.fingerDraw === next) return;
+    state.settings.fingerDraw = next;
+    if (sketchCtl) sketchCtl.flush();
+    if (sigCtl) sigCtl.flush();
+    applyTheme();
+    save();
+    render();
   },
   'reset-all': () => resetAll(),
   'sign-now': () => {

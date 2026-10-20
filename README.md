@@ -4,7 +4,7 @@ An offline, iPad-first version of the CAP Observer Mission Log kneeboard card. I
 single-page web app, installs to the iPad home screen, autosaves on the device, and prints a
 two-page mission log to PDF (long logs can add a continuation page).
 
-**Live app:** https://thomasvdv-cap.github.io/efb/
+**Live app:** https://cap-mawg.github.io/efb/
 
 ## What it does
 
@@ -87,7 +87,7 @@ etc.) — plain `http://192.168.x.x` will not register the service worker or all
 
 ## Deployment
 
-The repo is set up for GitHub Pages from the `main` branch root:
+The repo is set up for GitHub Pages from the `main` branch root (`CAP-MAWG/efb`):
 
 ```sh
 git add .
@@ -96,7 +96,7 @@ git push origin main
 ```
 
 Then in **Settings → Pages**, set the source to **Deploy from a branch → main → / (root)**.
-The app appears at `https://thomasvdv-cap.github.io/efb/`.
+The app appears at `https://cap-mawg.github.io/efb/`.
 
 When you change the app, bump `CACHE` in `sw.js` (for example `observer-log-v1.1.1`) so
 installed copies pick up the new files.

@@ -2,7 +2,7 @@
 
 An offline, iPad-first version of the CAP Observer Mission Log kneeboard card. It runs as a
 single-page web app, installs to the iPad home screen, autosaves on the device, and prints a
-two-page mission log to PDF.
+two-page mission log to PDF (long logs can add a continuation page).
 
 **Live app:** https://thomasvdv-cap.github.io/efb/
 
@@ -24,7 +24,7 @@ two-page mission log to PDF.
   finger, with undo and red/black pens.
 - **Observations** — time, Hobbs, position and free text, with optional GPS.
 - **Sign-off** — printed name, CAPID, UTC date/time and a signature pad.
-- **Output** — Print / Save PDF (two pages, includes the CAP emblem), JSON backup/import and a
+- **Output** — Print / Save PDF (typically two pages, includes the CAP emblem), JSON backup/import and a
   flight-log CSV.
 - **Offline** — a service worker caches the whole app. After the first load it works with no
   signal. Data never leaves the iPad unless you export it.
@@ -57,8 +57,8 @@ re-imported on the same or another iPad.
 1. Mission/crew/frequency block, flight times and totals, the flight log table and OPS checks.
 2. Notes, sketch, observations and the certification/signature block.
 
-The layout is tuned for US Letter portrait. The app also uses the CAP emblem in the printed
-header.
+The layout is tuned for US Letter portrait; a long flight log can add a continuation page.
+The app also uses the CAP emblem in the printed header.
 
 ## Development
 

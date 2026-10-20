@@ -87,18 +87,22 @@ etc.) — plain `http://192.168.x.x` will not register the service worker or all
 
 ## Deployment
 
-The repo is set up for GitHub Pages from the `main` branch root (`CAP-MAWG/efb`):
+`main` holds the source. The live site is served from the **`gh-pages`** branch root
+(`CAP-MAWG/efb`), because the legacy Pages builder on `main` was unreliable after the repo move.
+
+Edit and commit on `main`, then publish the static files:
 
 ```sh
 git add .
-git commit -m "Observer Log 1.1"
+git commit -m "Observer Log 1.1.5"
 git push origin main
+./deploy-pages.sh
 ```
 
-Then in **Settings → Pages**, set the source to **Deploy from a branch → main → / (root)**.
-The app appears at `https://cap-mawg.github.io/efb/`.
+The script copies `index.html`, `app.js`, `styles.css`, `sw.js`, the manifest and `icons/` to
+`gh-pages` and pushes it. Pages then serves `https://cap-mawg.github.io/efb/`.
 
-When you change the app, bump `CACHE` in `sw.js` (for example `observer-log-v1.1.1`) so
+When you change the app, bump `CACHE` in `sw.js` (for example `observer-log-v1.1.6`) so
 installed copies pick up the new files.
 
 ## Trademark note

@@ -13,6 +13,7 @@
   --line: #d5dfe9;
   --line-strong: #b8c7d6;
   --blue: #185b9d;
+  --blue-btn: #185b9d;
   --blue-deep: #123f6e;
   --blue-soft: #e4eef9;
   --red: #a62920;
@@ -40,6 +41,7 @@
   --line: #273645;
   --line-strong: #3a4d5f;
   --blue: #6bb0f0;
+  --blue-btn: #2f7fbe;
   --blue-deep: #9ccbf7;
   --blue-soft: #0f2b42;
   --red: #f08d82;
@@ -372,7 +374,7 @@ select.input {
 .gps-mark { margin-top: 10px; }
 .gps-mini { color: var(--blue); background: var(--blue-soft); border-color: transparent; }
 .mini:active { transform: scale(.97); }
-.mini.on { background: var(--blue); border-color: var(--blue); color: #fff; }
+.mini.on { background: var(--blue-btn); border-color: var(--blue-btn); color: #fff; }
 
 /* ---------- buttons ---------- */
 
@@ -395,7 +397,7 @@ select.input {
 }
 .btn:active { transform: scale(.985); }
 .btn svg { width: 18px; height: 18px; }
-.btn.primary { background: var(--blue); border-color: var(--blue); color: #fff; }
+.btn.primary { background: var(--blue-btn); border-color: var(--blue-btn); color: #fff; }
 .btn.soft { background: var(--blue-soft); border-color: transparent; color: var(--blue); }
 .btn.small { min-height: 34px; padding: 0 12px; font-size: 13px; border-radius: 10px; }
 .btn.tiny { min-height: 30px; padding: 0 9px; font-size: 12px; border-radius: 8px; }

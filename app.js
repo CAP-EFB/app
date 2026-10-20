@@ -5,7 +5,7 @@
    All data stays in the browser (IndexedDB with a localStorage mirror).
    ========================================================================= */
 
-const APP_VERSION = '1.1.0';
+const APP_VERSION = '1.1.1';
 const STATE_KEY = 'observer-log-state-v1';
 const DB_NAME = 'observer-log';
 const DB_STORE = 'kv';
@@ -683,10 +683,15 @@ function systemPrefersDark() {
 
 function applyTheme() {
   const theme = (state && state.settings.theme) || 'auto';
-  if (theme === 'auto') document.documentElement.removeAttribute('data-theme');
-  else document.documentElement.setAttribute('data-theme', theme);
-
   const dark = theme === 'dark' || (theme === 'auto' && systemPrefersDark());
+
+  if (theme === 'auto') {
+    if (dark) document.documentElement.setAttribute('data-theme', 'dark');
+    else document.documentElement.removeAttribute('data-theme');
+  } else {
+    document.documentElement.setAttribute('data-theme', theme);
+  }
+
   const meta = document.querySelector('meta[name="theme-color"]');
   if (meta) meta.setAttribute('content', dark ? '#0a1118' : '#edf1f6');
 

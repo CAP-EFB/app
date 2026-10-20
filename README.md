@@ -24,7 +24,7 @@ two-page mission log to PDF (long logs can add a continuation page).
   finger, with undo and red/black pens.
 - **Observations** — time, Hobbs, position and free text, with optional GPS.
 - **Sign-off** — printed name, CAPID, UTC date/time and a signature pad.
-- **Output** — Print / Save PDF (typically two pages, includes the CAP emblem), JSON backup/import and a
+- **Output** — Print / Save PDF (typically two pages, includes the propeller mark), JSON backup/import and a
   flight-log CSV.
 - **Offline** — a service worker caches the whole app. After the first load it works with no
   signal. Data never leaves the iPad unless you export it.
@@ -58,7 +58,7 @@ re-imported on the same or another iPad.
 2. Notes, sketch, observations and the certification/signature block.
 
 The layout is tuned for US Letter portrait; a long flight log can add a continuation page.
-The app also uses the CAP emblem in the printed header.
+The app uses an original propeller mark in the app and printed headers.
 
 ## Development
 
@@ -83,7 +83,7 @@ etc.) — plain `http://192.168.x.x` will not register the service worker or all
 | `app.js` | State, storage, GPS, sketch/signature, rendering, PDF builder |
 | `sw.js` | Offline cache (bump `CACHE` when shipping changes) |
 | `manifest.webmanifest` | Home-screen metadata |
-| `icons/` | App icons and the CAP emblem |
+| `icons/` | App icons and the propeller mark |
 
 ## Deployment
 
@@ -103,6 +103,6 @@ installed copies pick up the new files.
 
 ## Trademark note
 
-The Civil Air Patrol emblem is a trademark of Civil Air Patrol, Inc. It is included here for a
-CAP member's personal mission log and is not an official CAP product. The SVG is the public-domain
-US emblem from Wikimedia Commons.
+This is a personal mission-log tool, not an official Civil Air Patrol product. It is not affiliated
+with or endorsed by Civil Air Patrol, Inc. CAP names and emblems are trademarks of Civil Air Patrol,
+Inc.; this app uses an original propeller mark, not the CAP emblem.

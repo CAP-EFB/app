@@ -2469,8 +2469,8 @@ function buildPrint() {
         <div class="p-section" style="margin-top:0">
           <div class="p-section-title">Totals</div>
           <div class="p-totals">
-            <div class="p-total"><div class="tl">Wheels up → down</div><div class="tv">${fmtDuration(totals.flight)}</div></div>
-            <div class="p-total"><div class="tl">Engine start → shut down</div><div class="tv">${fmtDuration(totals.engine)}</div></div>
+            <div class="p-total"><div class="tl">Flight time</div><div class="tv">${fmtDuration(totals.flight)}</div></div>
+            <div class="p-total"><div class="tl">Engine run</div><div class="tv">${fmtDuration(totals.engine)}</div></div>
             <div class="p-total"><div class="tl">Total tach</div><div class="tv">${totals.tach == null ? '—' : fmtDecimal(totals.tach, 1)}</div></div>
             <div class="p-total"><div class="tl">Hobbs used</div><div class="tv">${totals.hobbs == null ? '—' : fmtDecimal(totals.hobbs, 1)}</div></div>
           </div>

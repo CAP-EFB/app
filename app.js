@@ -5,7 +5,7 @@
    All data stays in the browser (IndexedDB with a localStorage mirror).
    ========================================================================= */
 
-const APP_VERSION = '1.1.2';
+const APP_VERSION = '1.1.3';
 const STATE_KEY = 'observer-log-state-v1';
 const DB_NAME = 'observer-log';
 const DB_STORE = 'kv';
@@ -2401,7 +2401,7 @@ function buildPrint() {
   }).join('');
 
   const entries = log.entries.slice();
-  const blankEntries = Math.max(0, 6 - entries.length);
+  const blankEntries = Math.max(0, 10 - entries.length);
   const entryRows = entries.map(entry => `<tr>
     <td class="c mono">${entry.time ? esc(entry.time + 'Z') : ''}</td>
     <td class="c mono">${esc(entry.hobbs || '')}</td>
@@ -2508,7 +2508,7 @@ function buildPrint() {
 
       <div class="p-footer">
         <span>Observer Mission Log · ${esc(log.mission || 'Untitled mission')} · Sortie ${esc(log.sortie || '—')}</span>
-        <span>Page 1</span>
+        <span>Sortie record</span>
       </div>
     </section>
 
@@ -2559,7 +2559,7 @@ function buildPrint() {
 
       <div class="p-footer">
         <span>Observer Mission Log · ${esc(log.mission || 'Untitled mission')} · Sortie ${esc(log.sortie || '—')}</span>
-        <span>Page 2</span>
+        <span>Notes &amp; observations</span>
       </div>
     </section>
   `;

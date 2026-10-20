@@ -1,5 +1,5 @@
 /* Observer Log service worker — cache-first so the app works with no signal. */
-const CACHE = 'observer-log-v1.1.2';
+const CACHE = 'observer-log-v1.1.3';
 
 const ASSETS = [
   './',

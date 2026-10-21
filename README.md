@@ -22,7 +22,7 @@ two-page mission log to PDF (long logs can add a continuation page).
   plus a next-due reminder on the log tab.
 - **Notes & sketch** — free text plus a graph-paper canvas that works with Apple Pencil or a
   finger, with undo and red/black pens.
-- **Observations** — time, Hobbs, position and free text, with optional GPS.
+- **Observations** — time, Hobbs, position and free text, with optional GPS and up to six camera/library photos per observation.
 - **Sign-off** — printed name, CAPID, UTC date/time and a signature pad.
 - **Output** — Print / Save PDF. On iPad this builds a PDF and opens the share sheet (Save to Files or
   Print); on a computer it uses the browser print dialog. Also JSON backup/import and a flight-log CSV.
@@ -48,7 +48,8 @@ no server; nothing is uploaded. Autosave runs about half a second after each cha
 
 Safari can evict website data after long periods of disuse. Export a JSON backup after each
 mission from **Menu → Export backup**, and save the PDF to Files. The JSON backup can be
-re-imported on the same or another iPad.
+re-imported on the same or another iPad. Photos are compressed to at most 1600 px and are
+included in both the backup and the PDF.
 
 ## Printing
 
@@ -56,7 +57,7 @@ re-imported on the same or another iPad.
 the browser print dialog opens. The PDF has:
 
 1. Mission/crew/frequency block, flight times and totals, the flight log table and OPS checks.
-2. Notes, sketch, observations and the certification/signature block.
+2. Notes, sketch, observations (including photos) and the certification/signature block.
 
 The layout is tuned for US Letter portrait; a long flight log can add a continuation page.
 The app uses an original propeller mark in the app and printed headers.
@@ -96,7 +97,7 @@ Edit and commit on `main`, then publish the static files:
 
 ```sh
 git add .
-git commit -m "Observer Log 1.2.0"
+git commit -m "Observer Log 1.3.0"
 git push origin main
 ./deploy-pages.sh
 ```

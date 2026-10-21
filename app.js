@@ -5,7 +5,7 @@
    All data stays in the browser (IndexedDB with a localStorage mirror).
    ========================================================================= */
 
-const APP_VERSION = '1.1.5';
+const APP_VERSION = '1.2.0';
 const STATE_KEY = 'observer-log-state-v1';
 const DB_NAME = 'observer-log';
 const DB_STORE = 'kv';
@@ -2042,9 +2042,10 @@ function helpSheet() {
       <div class="sheet-section">
         <h3>After the sortie</h3>
         <p class="sheet-note" style="margin-top:0">
-          Trip the menu → <strong>Print / Save PDF</strong>, then choose <strong>Save to Files</strong> in the
-          print preview. That gives you a two-page PDF of the log with notes, sketches, observations and
-          signature. <strong>Export backup</strong> writes a .json copy of everything.
+          Tap <strong>Print / Save PDF</strong>, then choose <strong>Save to Files</strong> or
+          <strong>Print</strong> in the share sheet. On a computer, the browser print dialog opens.
+          That gives you a PDF of the log with notes, sketches, observations and signature.
+          <strong>Export backup</strong> writes a .json copy of everything.
         </p>
       </div>
 
@@ -2337,8 +2338,495 @@ function importJSON() {
 
 function printLog() {
   closeSheet();
+
+  // iPadOS blocks window.print() inside a home-screen web app. On iOS (and
+  // any standalone PWA) build the PDF directly and hand it to the share sheet.
+  if (isIOSDevice() || isStandaloneApp()) {
+    exportPdf();
+    return;
+  }
+
   buildPrint();
-  setTimeout(() => window.print(), 60);
+  window.print();
+}
+
+/* ---------- PDF export ---------- */
+
+let pdfLogoData = null;
+
+function isStandaloneApp() {
+  return (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) ||
+    navigator.standalone === true;
+}
+
+function isIOSDevice() {
+  return /iPad|iPhone|iPod/.test(navigator.userAgent) ||
+    (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+}
+
+function pdfSafe(value) {
+  return String(value == null ? '' : value)
+    .replace(/[—–]/g, '-')
+    .replace(/[“”]/g, '"')
+    .replace(/[‘’]/g, "'")
+    .replace(/′/g, "'")
+    .replace(/″/g, '"')
+    .replace(/→/g, '->')
+    .replace(/…/g, '...')
+    .replace(/·/g, '-')
+    .replace(/[^\x09\x0A\x0D\x20-\x7E\u00A0-\u00FF]/g, '');
+}
+
+function pdfCoordPair(latRaw, lonRaw, format) {
+  const lat = parseLat(latRaw);
+  const lon = parseLon(lonRaw);
+  if (lat == null || lon == null) return '';
+  return pdfSafe(fmtCoord(lat, true, format) + ' / ' + fmtCoord(lon, false, format));
+}
+
+function loadImageData(url) {
+  return fetch(url)
+    .then(response => {
+      if (!response.ok) throw new Error('image request failed');
+      return response.blob();
+    })
+    .then(blob => new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result);
+      reader.onerror = reject;
+      reader.readAsDataURL(blob);
+    }));
+}
+
+function preloadPdfLogo() {
+  loadImageData('icons/propeller-print.png')
+    .then(data => { pdfLogoData = data; })
+    .catch(() => { /* the PDF still works without the corner mark */ });
+}
+
+function pdfHeader(doc, title, subtitle, rightLines) {
+  const W = doc.internal.pageSize.getWidth();
+  const M = 36;
+  const navy = [18, 63, 110];
+
+  if (pdfLogoData) {
+    try { doc.addImage(pdfLogoData, 'PNG', M, 28, 40, 40); } catch (_) { /* ignore */ }
+  }
+
+  const textX = pdfLogoData ? M + 50 : M;
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(17);
+  doc.setTextColor(navy[0], navy[1], navy[2]);
+  doc.text(pdfSafe(title), textX, 46);
+
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(7);
+  doc.setTextColor(92, 106, 118);
+  doc.text(pdfSafe(subtitle).toUpperCase(), textX, 59);
+
+  doc.setFontSize(8);
+  doc.setTextColor(30, 40, 50);
+  rightLines.forEach((line, index) => {
+    doc.text(pdfSafe(line), W - M, 38 + index * 11, { align: 'right' });
+  });
+
+  doc.setDrawColor(navy[0], navy[1], navy[2]);
+  doc.setLineWidth(1.6);
+  doc.line(M, 76, W - M, 76);
+}
+
+function buildPdfBlob() {
+  const lib = window.jspdf;
+  if (!lib || !lib.jsPDF) throw new Error('PDF library not loaded');
+
+  const doc = new lib.jsPDF({ unit: 'pt', format: 'letter', orientation: 'portrait' });
+  if (typeof doc.autoTable !== 'function') throw new Error('PDF table plugin not loaded');
+
+  const W = doc.internal.pageSize.getWidth();
+  const H = doc.internal.pageSize.getHeight();
+  const M = 36;
+  const CW = W - M * 2;
+  const navy = [18, 63, 110];
+  const grey = [92, 106, 118];
+  const dark = [30, 40, 50];
+  const log = activeLog();
+  const fmt = state.settings.coordFormat;
+  const totals = timeTotals(log);
+  const printed = fmtDateZ(new Date());
+  const mission = pdfSafe(log.mission || 'Untitled mission');
+  const sortie = pdfSafe(log.sortie || '-');
+  const aircraft = pdfSafe(log.aircraft || 'No tail');
+
+  pdfHeader(doc, 'Observer Mission Log', 'Sortie record', [
+    'Printed ' + printed,
+    'Entries ' + log.entries.length
+  ]);
+
+  let y = 86;
+
+  const coordText = (latRaw, lonRaw) => pdfCoordPair(latRaw, lonRaw, fmt) || '';
+
+  const meta = [
+    ['Mission', mission], ['Sortie', sortie], ['Aircraft N#', aircraft], ['Callsign', pdfSafe(log.callsign)],
+    ['Base', pdfSafe(log.base)], ['CAP flight', pdfSafe(log.capFlight)], ['Sectional', pdfSafe(log.sectional)], ['Grid', pdfSafe(log.grid)],
+    ['Altitude', pdfSafe(log.altitude)], ['Airspeed', pdfSafe(log.airspeed)], ['Entry point', coordText(log.entry.lat, log.entry.lon)], ['Exit point', coordText(log.exit.lat, log.exit.lon)],
+    ['Pilot', pdfSafe(log.crew.pilot)], ['Observer', pdfSafe(log.crew.observer)], ['AP', pdfSafe(log.crew.ap)], ['Scanner', pdfSafe(log.crew.scanner)],
+    ['Main radio', pdfSafe(log.radio.main)], ['Guard radio', pdfSafe(log.radio.guard)], ['ATIS / AWOS', pdfSafe(log.radio.atis)], ['CTAF', pdfSafe(log.radio.ctaf)]
+  ];
+
+  const cellW = CW / 4;
+  const cellH = 31;
+  meta.forEach((item, index) => {
+    const col = index % 4;
+    const row = Math.floor(index / 4);
+    const x = M + col * cellW;
+    const top = y + row * cellH;
+    doc.setDrawColor(170, 185, 198);
+    doc.setLineWidth(0.5);
+    doc.rect(x, top, cellW, cellH);
+
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(6);
+    doc.setTextColor(grey[0], grey[1], grey[2]);
+    doc.text(item[0].toUpperCase(), x + 4, top + 8);
+
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(item[1] && item[1].length > 24 ? 7.4 : 8.2);
+    doc.setTextColor(dark[0], dark[1], dark[2]);
+    const lines = item[1] ? doc.splitTextToSize(item[1], cellW - 8).slice(0, 2) : [];
+    if (lines.length) doc.text(lines, x + 4, top + 17);
+  });
+  y += cellH * 5 + 9;
+
+  // Flight times and totals
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(7);
+  doc.setTextColor(navy[0], navy[1], navy[2]);
+  doc.text('FLIGHT TIMES', M, y + 7);
+  doc.text('TOTALS', 350, y + 7);
+
+  const leftW = 300;
+  const rowH = 15;
+  const tableTop = y + 13;
+
+  doc.setFillColor(232, 238, 244);
+  doc.rect(M, tableTop, leftW, rowH, 'F');
+  doc.setDrawColor(150, 160, 170);
+  doc.setLineWidth(0.5);
+  doc.rect(M, tableTop, leftW, rowH);
+  doc.line(M + 150, tableTop, M + 150, tableTop + rowH);
+  doc.line(M + 215, tableTop, M + 215, tableTop + rowH);
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(6.2);
+  doc.setTextColor(navy[0], navy[1], navy[2]);
+  doc.text('EVENT', M + 4, tableTop + 10);
+  doc.text('TIME (Z)', M + 156, tableTop + 10);
+  doc.text('HOBBS', M + 221, tableTop + 10);
+
+  TIME_DEFS.forEach((def, index) => {
+    const value = log.times[def.key] || {};
+    const top = tableTop + rowH * (index + 1);
+    doc.setDrawColor(170, 185, 198);
+    doc.rect(M, top, leftW, rowH);
+    doc.line(M + 150, top, M + 150, top + rowH);
+    doc.line(M + 215, top, M + 215, top + rowH);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(7.4);
+    doc.setTextColor(dark[0], dark[1], dark[2]);
+    doc.text(def.label, M + 4, top + 10);
+    doc.setFont('helvetica', 'normal');
+    doc.text(value.time ? value.time + 'Z' : '', M + 156, top + 10);
+    doc.text(value.hobbs || '', M + 221, top + 10);
+  });
+
+  const totalsData = [
+    ['Flight time', fmtDuration(totals.flight)],
+    ['Engine run', fmtDuration(totals.engine)],
+    ['Total tach', totals.tach == null ? '-' : fmtDecimal(totals.tach, 1)],
+    ['Hobbs used', totals.hobbs == null ? '-' : fmtDecimal(totals.hobbs, 1)]
+  ];
+  const totalsX = 350;
+  const totalsW = W - M - totalsX;
+  const totalsCell = totalsW / 2;
+  const totalsH = 30;
+
+  totalsData.forEach((item, index) => {
+    const col = index % 2;
+    const row = Math.floor(index / 2);
+    const x = totalsX + col * totalsCell;
+    const top = tableTop + row * totalsH;
+    doc.setDrawColor(170, 185, 198);
+    doc.rect(x, top, totalsCell, totalsH);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(5.8);
+    doc.setTextColor(grey[0], grey[1], grey[2]);
+    doc.text(item[0].toUpperCase(), x + 4, top + 8);
+    doc.setFontSize(12);
+    doc.setTextColor(dark[0], dark[1], dark[2]);
+    doc.text(item[1], x + 4, top + 21);
+  });
+
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(6.8);
+  doc.setTextColor(grey[0], grey[1], grey[2]);
+  doc.text('Tach start ' + (log.times.tachStart || '________') + '  ·  Tach end ' + (log.times.tachEnd || '________'),
+    totalsX, tableTop + totalsH * 2 + 10);
+
+  y = Math.max(tableTop + rowH * 7, tableTop + totalsH * 2 + 16) + 10;
+
+  // Flight log
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(7);
+  doc.setTextColor(navy[0], navy[1], navy[2]);
+  doc.text('FLIGHT LOG', M, y + 7);
+
+  const logRows = log.entries.map(entry => [
+    entry.time ? entry.time + 'Z' : '',
+    entry.hobbs || '',
+    pdfSafe(fmtCoord(parseLat(entry.lat), true, fmt) || ''),
+    pdfSafe(fmtCoord(parseLon(entry.lon), false, fmt) || ''),
+    pdfSafe(entry.event || ''),
+    pdfSafe(entry.note || '')
+  ]);
+  const blankLogs = Math.max(0, 10 - logRows.length);
+  for (let i = 0; i < blankLogs; i++) logRows.push(['', '', '', '', '', '']);
+
+  doc.autoTable({
+    startY: y + 12,
+    margin: { left: M, right: M },
+    tableWidth: CW,
+    head: [['TIME', 'HOBBS', 'LATITUDE N', 'LONGITUDE W', 'EVENT', 'REMARKS']],
+    body: logRows,
+    theme: 'grid',
+    styles: {
+      font: 'helvetica',
+      fontSize: 7,
+      cellPadding: 2.6,
+      textColor: dark,
+      lineColor: [150, 160, 170],
+      lineWidth: 0.4,
+      overflow: 'linebreak'
+    },
+    headStyles: {
+      fillColor: [232, 238, 244],
+      textColor: navy,
+      fontSize: 6.2,
+      fontStyle: 'bold'
+    },
+    columnStyles: {
+      0: { cellWidth: 48, halign: 'center' },
+      1: { cellWidth: 52, halign: 'center' },
+      2: { cellWidth: 88 },
+      3: { cellWidth: 92 },
+      4: { cellWidth: 100 },
+      5: { cellWidth: 160 }
+    }
+  });
+
+  y = doc.lastAutoTable.finalY + 9;
+
+  // OPS checks
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(7);
+  doc.setTextColor(navy[0], navy[1], navy[2]);
+  doc.text('OPS STATUS CHECKS', M, y + 7);
+
+  const opsRows = log.ops.map((op, index) => [
+    String(index + 1),
+    op.time ? op.time + 'Z' : '',
+    op.hobbs || '',
+    pdfSafe(op.fuel || ''),
+    pdfSafe(op.altimeter || ''),
+    op.normal ? 'Normal' : 'Flagged'
+  ]);
+  const blankOps = Math.max(0, 3 - opsRows.length);
+  for (let i = 0; i < blankOps; i++) opsRows.push(['', '', '', '', '', '']);
+
+  doc.autoTable({
+    startY: y + 12,
+    margin: { left: M, right: M },
+    tableWidth: CW,
+    head: [['#', 'TIME', 'HOBBS', 'FUEL', 'ALTIMETER', 'STATUS']],
+    body: opsRows,
+    theme: 'grid',
+    styles: {
+      font: 'helvetica',
+      fontSize: 7,
+      cellPadding: 2.6,
+      textColor: dark,
+      lineColor: [150, 160, 170],
+      lineWidth: 0.4
+    },
+    headStyles: {
+      fillColor: [232, 238, 244],
+      textColor: navy,
+      fontSize: 6.2,
+      fontStyle: 'bold'
+    },
+    columnStyles: {
+      0: { cellWidth: 30, halign: 'center' },
+      1: { cellWidth: 60, halign: 'center' },
+      2: { cellWidth: 60, halign: 'center' },
+      3: { cellWidth: 140 },
+      4: { cellWidth: 80, halign: 'center' },
+      5: { cellWidth: 170, halign: 'center' }
+    }
+  });
+
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(6.5);
+  doc.setTextColor(100);
+  doc.text('Observer Mission Log · ' + mission + ' · Sortie ' + sortie, M, H - 22);
+  doc.text('Sortie record', W - M, H - 22, { align: 'right' });
+
+  // Page 2 — notes, sketch, observations, certification
+  doc.addPage();
+  pdfHeader(doc, 'Notes & Observations', mission + ' · Sortie ' + sortie + ' · ' + aircraft, [
+    'Printed ' + printed
+  ]);
+
+  let ny = 88;
+
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(7);
+  doc.setTextColor(navy[0], navy[1], navy[2]);
+  doc.text('NOTES / SKETCHES', M, ny + 6);
+  ny += 13;
+
+  const noteText = pdfSafe(log.notes || '');
+  const noteLines = noteText ? doc.splitTextToSize(noteText, CW - 10) : [];
+  const noteH = Math.max(46, Math.min(160, noteLines.length * 9.6 + 12));
+  doc.setDrawColor(170, 185, 198);
+  doc.setLineWidth(0.5);
+  doc.rect(M, ny, CW, noteH);
+  if (noteLines.length) {
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(8.4);
+    doc.setTextColor(dark[0], dark[1], dark[2]);
+    doc.text(noteLines.slice(0, Math.floor((noteH - 9) / 9.6)), M + 5, ny + 8);
+  }
+  ny += noteH + 8;
+
+  const sketch = safeImage(log.sketch);
+  if (sketch) {
+    let sw = 190;
+    let sh = 238;
+    if (ny + sh > 460) { sw = 160; sh = 200; }
+    if (ny + sh > H - 40) {
+      doc.addPage();
+      pdfHeader(doc, 'Notes & Observations (continued)', mission + ' · Sortie ' + sortie, ['Printed ' + printed]);
+      ny = 88;
+    }
+    const sx = (W - sw) / 2;
+    try {
+      doc.addImage(sketch, 'JPEG', sx, ny, sw, sh);
+      doc.setDrawColor(170, 185, 198);
+      doc.rect(sx - 2, ny - 2, sw + 4, sh + 4);
+    } catch (_) { /* skip a broken image */ }
+    ny += sh + 10;
+  }
+
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(7);
+  doc.setTextColor(navy[0], navy[1], navy[2]);
+  doc.text('OBSERVATIONS', M, ny + 6);
+  ny += 13;
+
+  const obsCount = Math.max(4, log.observations.length);
+  for (let i = 0; i < obsCount; i++) {
+    const obs = log.observations[i];
+    const time = obs && obs.time ? obs.time + 'Z' : '______Z';
+    const hobbs = obs && obs.hobbs ? obs.hobbs : '______';
+    const coords = obs
+      ? (pdfCoordPair(obs.lat, obs.lon, fmt) || '______ N  /  ______ W')
+      : '______ N  /  ______ W';
+    const head = 'Obs ' + (i + 1) + '    Time ' + time + '    Hobbs ' + hobbs + '    ' + coords;
+    const body = obs ? pdfSafe(obs.text || '') : '';
+    const bodyLines = body ? doc.splitTextToSize(body, CW - 10) : [];
+    const boxH = Math.max(32, 17 + bodyLines.length * 9.2 + 4);
+
+    if (ny + boxH > H - 40) {
+      doc.addPage();
+      pdfHeader(doc, 'Notes & Observations (continued)', mission + ' · Sortie ' + sortie, ['Printed ' + printed]);
+      ny = 88;
+    }
+
+    doc.setFillColor(238, 243, 248);
+    doc.rect(M, ny, CW, 15, 'F');
+    doc.setDrawColor(170, 185, 198);
+    doc.rect(M, ny, CW, boxH);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(6.8);
+    doc.setTextColor(navy[0], navy[1], navy[2]);
+    doc.text(pdfSafe(head), M + 4, ny + 10);
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(8.4);
+    doc.setTextColor(dark[0], dark[1], dark[2]);
+    if (bodyLines.length) doc.text(bodyLines, M + 5, ny + 22);
+    ny += boxH + 5;
+  }
+
+  if (ny + 82 > H - 30) {
+    doc.addPage();
+    pdfHeader(doc, 'Certification', mission + ' · Sortie ' + sortie, ['Printed ' + printed]);
+    ny = 88;
+  }
+
+  ny += 2;
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(7);
+  doc.setTextColor(navy[0], navy[1], navy[2]);
+  doc.text('CERTIFICATION', M, ny + 6);
+  ny += 14;
+
+  const signature = safeImage(log.signoff.signature);
+  if (signature) {
+    try { doc.addImage(signature, 'JPEG', M, ny, 180, 43); } catch (_) { /* ignore */ }
+  }
+
+  doc.setDrawColor(60);
+  doc.setLineWidth(0.7);
+  doc.line(M, ny + 50, M + 200, ny + 50);
+  doc.line(M + 220, ny + 50, M + 366, ny + 50);
+  doc.line(M + 376, ny + 50, M + 446, ny + 50);
+  doc.line(M + 456, ny + 50, W - M, ny + 50);
+
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(8.5);
+  doc.setTextColor(dark[0], dark[1], dark[2]);
+  if (log.signoff.name) doc.text(pdfSafe(log.signoff.name), M + 220, ny + 38);
+  if (log.signoff.capid) doc.text(pdfSafe(log.signoff.capid), M + 376, ny + 38);
+  doc.text(pdfSafe(log.signoff.dateTime || printed), M + 456, ny + 38);
+
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(6);
+  doc.setTextColor(grey[0], grey[1], grey[2]);
+  doc.text('SIGNATURE', M, ny + 59);
+  doc.text('PRINTED NAME', M + 220, ny + 59);
+  doc.text('CAPID', M + 376, ny + 59);
+  doc.text('DATE TIME (DDhhmmZ MMM YY)', M + 456, ny + 59);
+
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(6.5);
+  doc.setTextColor(100);
+  doc.text('Observer Mission Log · ' + mission + ' · Sortie ' + sortie, M, H - 22);
+  doc.text('Notes & observations', W - M, H - 22, { align: 'right' });
+
+  return doc.output('blob');
+}
+
+function exportPdf() {
+  try {
+    const blob = buildPdfBlob();
+    shareFile(exportName('pdf'), blob).catch(err => {
+      console.warn('PDF share failed', err);
+      toast('PDF built, but sharing failed');
+    });
+    toast('PDF ready — choose Save to Files or Print');
+  } catch (err) {
+    console.warn('PDF build failed', err);
+    toast('Could not build the PDF. Export a backup instead.');
+  }
 }
 
 function resetAll() {
@@ -3002,6 +3490,7 @@ async function boot() {
     navigator.storage.persist().catch(() => {});
   }
 
+  preloadPdfLogo();
   syncWakeLock();
 
   if ('serviceWorker' in navigator && location.protocol !== 'file:') {

@@ -1,17 +1,20 @@
 /* Observer Log service worker — cache-first so the app works with no signal. */
-const CACHE = 'observer-log-v1.1.5';
+const CACHE = 'observer-log-v1.2.0';
 
 const ASSETS = [
   './',
   './index.html',
   './styles.css',
   './app.js',
+  './vendor/jspdf.umd.min.js',
+  './vendor/jspdf.plugin.autotable.min.js',
   './manifest.webmanifest',
   './icons/icon-180.png',
   './icons/icon-192.png',
   './icons/icon-512.png',
   './icons/icon-maskable-512.png',
-  './icons/propeller.svg'
+  './icons/propeller.svg',
+  './icons/propeller-print.png'
 ];
 
 self.addEventListener('install', event => {

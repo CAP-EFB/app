@@ -10,6 +10,8 @@ git worktree add --detach "$worktree" origin/gh-pages
 cp index.html app.js styles.css sw.js manifest.webmanifest .nojekyll "$worktree"/
 rm -rf "$worktree/icons"
 cp -R icons "$worktree/icons"
+rm -rf "$worktree/vendor"
+cp -R vendor "$worktree/vendor"
 
 cd "$worktree"
 git add -A

@@ -5,8 +5,9 @@
    All data stays in the browser (IndexedDB with a localStorage mirror).
    ========================================================================= */
 
-const APP_VERSION = '1.2.0';
+const APP_VERSION = '1.3.0';
 const STATE_KEY = 'observer-log-state-v1';
+const STATE_MIRROR_LIMIT = 2000000;
 const DB_NAME = 'observer-log';
 const DB_STORE = 'kv';
 
@@ -509,9 +510,24 @@ function normalizeLog(raw) {
   log.ops = Array.isArray(log.ops) ? log.ops.map(o => Object.assign({
     id: uid(), time: '', hobbs: '', fuel: '', altimeter: '', normal: true
   }, o || {})) : [];
-  log.observations = Array.isArray(log.observations) ? log.observations.map(o => Object.assign({
-    id: uid(), time: '', hobbs: '', lat: '', lon: '', text: '', gpsAccuracy: null, gpsTime: ''
-  }, o || {})) : [];
+  log.observations = Array.isArray(log.observations) ? log.observations.map(o => {
+    const merged = Object.assign({
+      id: uid(), time: '', hobbs: '', lat: '', lon: '', text: '', gpsAccuracy: null, gpsTime: ''
+    }, o || {});
+    merged.photos = Array.isArray(merged.photos)
+      ? merged.photos
+          .filter(photo => photo && typeof photo.data === 'string' && photo.data.startsWith('data:image/'))
+          .map(photo => ({
+            id: photo.id || uid(),
+            data: photo.data,
+            thumb: typeof photo.thumb === 'string' && photo.thumb.startsWith('data:image/') ? photo.thumb : photo.data,
+            w: Number(photo.w) || 0,
+            h: Number(photo.h) || 0,
+            addedAt: photo.addedAt || 0
+          }))
+      : [];
+    return merged;
+  }) : [];
   return log;
 }
 
@@ -623,16 +639,20 @@ async function writeState() {
         tx.onerror = () => reject(tx.error);
         tx.onabort = () => reject(tx.error);
       });
+    } else if (json.length > STATE_MIRROR_LIMIT) {
+      ok = false;
     }
   } catch (err) {
     console.warn('IndexedDB write failed', err);
     ok = false;
   }
 
+  // Photos and sketches can push the state past the small localStorage quota.
+  // IndexedDB is the primary store; skip the mirror rather than filling it up.
   try {
-    localStorage.setItem(STATE_KEY, json);
+    if (json.length <= STATE_MIRROR_LIMIT) localStorage.setItem(STATE_KEY, json);
+    else localStorage.removeItem(STATE_KEY);
   } catch (err) {
-    // A very large sketch can exceed the localStorage quota; IndexedDB is primary.
     if (!(err && err.name === 'QuotaExceededError')) console.warn('localStorage write failed', err);
   }
 
@@ -640,7 +660,11 @@ async function writeState() {
 }
 
 function mirrorState() {
-  try { localStorage.setItem(STATE_KEY, JSON.stringify(state)); } catch (_) { /* ignore */ }
+  try {
+    const json = JSON.stringify(state);
+    if (json.length <= STATE_MIRROR_LIMIT) localStorage.setItem(STATE_KEY, json);
+    else localStorage.removeItem(STATE_KEY);
+  } catch (_) { /* ignore */ }
 }
 
 function setSaveStatus(kind, text) {
@@ -1091,10 +1115,12 @@ function timesView(log) {
 }
 
 function obsCardHTML(log, obs, index) {
+  const photos = Array.isArray(obs.photos) ? obs.photos : [];
   return `<article class="obs">
     <div class="obs-head">
       <span class="badge">Obs ${index + 1}</span>
       <span class="obs-time mono">${obs.time ? esc(fmtZ(obs.time)) : ''}</span>
+      ${photos.length ? `<span class="obs-time">${photos.length} photo${photos.length === 1 ? '' : 's'}</span>` : ''}
       <span class="spacer"></span>
       <button type="button" class="row-del" data-act="del-obs" data-id="${esc(obs.id)}" aria-label="Delete observation">×</button>
     </div>
@@ -1117,6 +1143,15 @@ function obsCardHTML(log, obs, index) {
     </div>
     <textarea class="input obs-text" data-bind="observations.${index}.text" data-autogrow
       placeholder="What did you see? Include altitude, heading, and anything distinctive.">${esc(obs.text)}</textarea>
+    <div class="obs-photos">
+      ${photos.map((photo, photoIndex) => `<button type="button" class="obs-photo" data-act="view-photo" data-obs="${esc(obs.id)}" data-index="${photoIndex}" aria-label="View observation photo ${photoIndex + 1}">
+        <img src="${esc(photo.thumb || photo.data)}" alt="">
+      </button>`).join('')}
+      ${photos.length < MAX_OBS_PHOTOS ? `<button type="button" class="obs-photo add" data-act="add-photo" data-obs="${esc(obs.id)}">
+        ${PHOTO_ICON}
+        <span>Photo</span>
+      </button>` : ''}
+    </div>
   </article>`;
 }
 
@@ -1630,6 +1665,159 @@ function safeImage(source) {
     : '';
 }
 
+/* ---------- observation photos ---------- */
+
+const MAX_OBS_PHOTOS = 6;
+const PHOTO_MAX_EDGE = 1600;
+const PHOTO_QUALITY = 0.74;
+
+const PHOTO_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h3l1.4-2h7.2L17 7h3a1 1 0 0 1 1 1v11a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V8a1 1 0 0 1 1-1Z"/><circle cx="12" cy="13" r="4"/></svg>';
+
+function loadPhotoBitmap(file) {
+  if ('createImageBitmap' in window) {
+    return createImageBitmap(file, { imageOrientation: 'from-image' }).catch(() => null)
+      .then(bitmap => {
+        if (bitmap) return bitmap;
+        return loadPhotoElement(file);
+      });
+  }
+  return loadPhotoElement(file);
+}
+
+function loadPhotoElement(file) {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      resolve(img);
+    };
+    img.onerror = () => {
+      URL.revokeObjectURL(url);
+      reject(new Error('Could not read that image'));
+    };
+    img.src = url;
+  });
+}
+
+async function fileToPhoto(file) {
+  if (!file || !file.type || !file.type.startsWith('image/')) {
+    throw new Error('Not an image');
+  }
+  const bitmap = await loadPhotoBitmap(file);
+  const width = bitmap.width || bitmap.naturalWidth || 0;
+  const height = bitmap.height || bitmap.naturalHeight || 0;
+  if (!width || !height) throw new Error('Empty image');
+
+  const scale = Math.min(1, PHOTO_MAX_EDGE / Math.max(width, height));
+  const outW = Math.max(1, Math.round(width * scale));
+  const outH = Math.max(1, Math.round(height * scale));
+
+  const canvas = document.createElement('canvas');
+  canvas.width = outW;
+  canvas.height = outH;
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(0, 0, outW, outH);
+  ctx.drawImage(bitmap, 0, 0, outW, outH);
+  if (typeof bitmap.close === 'function') bitmap.close();
+
+  const thumbScale = Math.min(1, 260 / Math.max(outW, outH));
+  const thumbW = Math.max(1, Math.round(outW * thumbScale));
+  const thumbH = Math.max(1, Math.round(outH * thumbScale));
+  const thumbCanvas = document.createElement('canvas');
+  thumbCanvas.width = thumbW;
+  thumbCanvas.height = thumbH;
+  const thumbCtx = thumbCanvas.getContext('2d');
+  thumbCtx.fillStyle = '#ffffff';
+  thumbCtx.fillRect(0, 0, thumbW, thumbH);
+  thumbCtx.drawImage(canvas, 0, 0, thumbW, thumbH);
+
+  return {
+    id: uid(),
+    data: canvas.toDataURL('image/jpeg', PHOTO_QUALITY),
+    thumb: thumbCanvas.toDataURL('image/jpeg', 0.68),
+    w: outW,
+    h: outH,
+    addedAt: Date.now()
+  };
+}
+
+function addObservationPhoto(obsId) {
+  const log = activeLog();
+  const obs = log.observations.find(o => o.id === obsId);
+  if (!obs) return;
+  if (!Array.isArray(obs.photos)) obs.photos = [];
+  if (obs.photos.length >= MAX_OBS_PHOTOS) {
+    toast('Up to ' + MAX_OBS_PHOTOS + ' photos per observation');
+    return;
+  }
+
+  const input = document.createElement('input');
+  input.type = 'file';
+  input.accept = 'image/*';
+  input.style.display = 'none';
+  document.body.appendChild(input);
+
+  input.addEventListener('cancel', () => input.remove());
+  setTimeout(() => { if (input.isConnected) input.remove(); }, 300000);
+
+  input.addEventListener('change', async () => {
+    const file = input.files && input.files[0];
+    input.remove();
+    if (!file) return;
+
+    toast('Adding photo…');
+    try {
+      const photo = await fileToPhoto(file);
+      obs.photos.push(photo);
+      save();
+      if (activeTab === 'obs') render();
+      toast('Photo added');
+    } catch (err) {
+      console.warn('photo import failed', err);
+      toast('Could not add that photo');
+    }
+  });
+
+  input.click();
+}
+
+function viewObservationPhoto(obsId, index) {
+  const log = activeLog();
+  const obs = log.observations.find(o => o.id === obsId);
+  if (!obs || !obs.photos || !obs.photos[index]) return;
+  const photo = obs.photos[index];
+  const obsIndex = log.observations.indexOf(obs);
+  const source = safeImage(photo.data);
+  if (!source) return;
+
+  openSheet({
+    title: 'Observation photo',
+    sub: 'Obs ' + (obsIndex + 1) + (obs.time ? ' · ' + fmtZ(obs.time) : ''),
+    body: `<img class="photo-full" src="${source}" alt="Observation photo">`,
+    footer: `<button type="button" class="btn danger left" data-act="delete-photo" data-obs="${esc(obs.id)}" data-photo="${esc(photo.id)}">Delete photo</button>
+      <button type="button" class="btn primary" data-close>Done</button>`
+  });
+}
+
+function deleteObservationPhoto(obsId, photoId) {
+  const log = activeLog();
+  const obs = log.observations.find(o => o.id === obsId);
+  if (!obs || !Array.isArray(obs.photos)) return;
+  const index = obs.photos.findIndex(photo => photo.id === photoId);
+  if (index < 0) return;
+  const [removed] = obs.photos.splice(index, 1);
+  closeSheet();
+  save();
+  render();
+  toast('Photo deleted', 'Undo', () => {
+    obs.photos.splice(index, 0, removed);
+    save();
+    render();
+  });
+}
+
 function missionSheet() {
   const log = activeLog();
   const crew = log.crew;
@@ -2030,6 +2218,9 @@ function helpSheet() {
             <span><strong>GPS positions</strong><span class="mi-sub">Tap “Use GPS” in an entry, observation, or mission sheet. Turn on Auto-capture GPS in Settings to stamp every checkpoint. Allow location when Safari asks; a fix works without a network.</span></span>
           </div>
           <div class="menu-item" style="cursor:default">
+            <span><strong>Observation photos</strong><span class="mi-sub">Tap Photo on an observation to use the camera or photo library. Up to six per observation; photos appear in the PDF.</span></span>
+          </div>
+          <div class="menu-item" style="cursor:default">
             <span><strong>Apple Pencil</strong><span class="mi-sub">Choose <strong>Finger</strong> above the sketch pad to draw without a pencil. In Apple Pencil mode a finger scrolls the page instead of drawing.</span></span>
           </div>
         </div>
@@ -2296,6 +2487,9 @@ function importJSON() {
   input.accept = '.json,application/json';
   input.style.display = 'none';
   document.body.appendChild(input);
+  input.addEventListener('cancel', () => input.remove());
+  setTimeout(() => { if (input.isConnected) input.remove(); }, 300000);
+
   input.addEventListener('change', async () => {
     const file = input.files && input.files[0];
     input.remove();
@@ -2743,7 +2937,18 @@ function buildPdfBlob() {
     const head = 'Obs ' + (i + 1) + '    Time ' + time + '    Hobbs ' + hobbs + '    ' + coords;
     const body = obs ? pdfSafe(obs.text || '') : '';
     const bodyLines = body ? doc.splitTextToSize(body, CW - 10) : [];
-    const boxH = Math.max(32, 17 + bodyLines.length * 9.2 + 4);
+
+    const photos = obs && Array.isArray(obs.photos)
+      ? obs.photos
+          .map(photo => ({ ...photo, src: safeImage(photo.data) }))
+          .filter(photo => photo.src)
+          .slice(0, 6)
+      : [];
+    const photoH = 52;
+    const photoGap = 5;
+    const photoRows = Math.ceil(photos.length / 3);
+    const photoAreaH = photoRows ? photoRows * (photoH + photoGap) + 4 : 0;
+    const boxH = Math.max(32, 17 + bodyLines.length * 9.2 + 4 + photoAreaH);
 
     if (ny + boxH > H - 40) {
       doc.addPage();
@@ -2763,6 +2968,27 @@ function buildPdfBlob() {
     doc.setFontSize(8.4);
     doc.setTextColor(dark[0], dark[1], dark[2]);
     if (bodyLines.length) doc.text(bodyLines, M + 5, ny + 22);
+
+    if (photos.length) {
+      let px = M + 5;
+      let py = ny + 17 + bodyLines.length * 9.2 + 6;
+      photos.forEach((photo, photoIndex) => {
+        let pw = photo.w && photo.h ? photoH * (photo.w / photo.h) : photoH * 1.33;
+        if (pw > 84) pw = 84;
+        if (photoIndex > 0 && photoIndex % 3 === 0) {
+          px = M + 5;
+          py += photoH + photoGap;
+        }
+        try {
+          const format = photo.src.startsWith('data:image/png') ? 'PNG' : 'JPEG';
+          doc.addImage(photo.src, format, px, py, pw, photoH);
+          doc.setDrawColor(170, 185, 198);
+          doc.rect(px, py, pw, photoH);
+        } catch (_) { /* skip a broken image */ }
+        px += pw + photoGap;
+      });
+    }
+
     ny += boxH + 5;
   }
 
@@ -2919,15 +3145,19 @@ function buildPrint() {
     Array.from({ length: Math.max(0, 3 - log.ops.length) }, () => '<tr><td class="c">&nbsp;</td><td></td><td></td><td></td><td></td><td></td></tr>').join('');
 
   const obsList = log.observations.slice();
-  const obsBlocks = obsList.map((obs, index) => `<div class="p-obs">
-    <div class="p-obs-head">
-      <b>Obs ${index + 1}</b>
-      <span>Time ${obs.time ? esc(obs.time + 'Z') : '________'}</span>
-      <span>Hobbs ${esc(obs.hobbs || '________')}</span>
-      <span>${esc(coordPair(obs.lat, obs.lon, fmt) || '________ N  ________ W')}</span>
-    </div>
-    <div class="p-obs-body">${esc(obs.text || '')}</div>
-  </div>`).join('') +
+  const obsBlocks = obsList.map((obs, index) => {
+    const photos = (obs.photos || []).map(photo => safeImage(photo.data)).filter(Boolean);
+    return `<div class="p-obs">
+      <div class="p-obs-head">
+        <b>Obs ${index + 1}</b>
+        <span>Time ${obs.time ? esc(obs.time + 'Z') : '________'}</span>
+        <span>Hobbs ${esc(obs.hobbs || '________')}</span>
+        <span>${esc(coordPair(obs.lat, obs.lon, fmt) || '________ N  ________ W')}</span>
+      </div>
+      <div class="p-obs-body">${esc(obs.text || '')}</div>
+      ${photos.length ? `<div class="p-obs-photos">${photos.map(src => `<img src="${src}" alt="">`).join('')}</div>` : ''}
+    </div>`;
+  }).join('') +
     Array.from({ length: Math.max(0, Math.min(4, 4 - obsList.length)) }, (_, i) => `<div class="p-obs">
       <div class="p-obs-head"><b>Obs ${obsList.length + i + 1}</b><span>Time ______Z</span><span>Hobbs ______</span><span>______ N  ______ W</span></div>
       <div class="p-obs-body">&nbsp;</div>
@@ -3229,6 +3459,9 @@ const actions = {
       render();
     });
   },
+  'add-photo': el => addObservationPhoto(el.dataset.obs),
+  'view-photo': el => viewObservationPhoto(el.dataset.obs, Number(el.dataset.index)),
+  'delete-photo': el => deleteObservationPhoto(el.dataset.obs, el.dataset.photo),
   'ops-add': () => addOpsCheck(),
   'del-ops': el => {
     const log = activeLog();
